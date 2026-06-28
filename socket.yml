@@ -1,0 +1,26 @@
+# socket.yml — Socket (https://socket.dev) configuration for the nemtus/symbol-networks mirror.
+#
+# Managed by the nemtus republish layer: .github/scripts/apply-nemtus-networks-patch.sh
+# rewrites this file verbatim on every upstream sync, so edit it THERE, not here —
+# otherwise the next mirror-sync reverts your change and mirror-ci.yml's no-drift check fails.
+version: 2
+
+triggerPaths:
+  - '**/package.json'
+  - '**/package-lock.json'
+  - '**/pyproject.toml'
+  - '**/*requirements*.txt'
+  - '**/Cargo.toml'
+  - '**/Cargo.lock'
+
+issueRules:
+  malware: true
+  installScripts: true
+  didYouMean: true     # typosquats
+  gitDependency: true
+  telemetry: false
+
+githubApp:
+  enabled: true
+  pullRequestAlertsEnabled: true
+  ignoreUsers: []

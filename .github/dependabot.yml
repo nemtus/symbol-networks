@@ -1,0 +1,44 @@
+# Dependabot — nemtus mirror layer. Owned by .github/scripts/apply-nemtus-networks-patch.sh,
+# which rewrites this file verbatim on every upstream sync (mirror-ci.yml enforces no drift).
+# Edit it THERE, not here.
+#
+# Scoped to github-actions ONLY: keeps our SHA-pinned actions current behind a reviewed PR.
+# This is a content mirror of network configuration data, so there are no package deps to update.
+# Dependabot reads this config from the default branch (main) only, so test-sai needs its own
+# target-branch entry to keep that branch's workflow action pins current too.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: sunday
+    labels: [dependencies]
+    commit-message:
+      prefix: '[dependency]'
+    cooldown:
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: test-sai
+    schedule:
+      interval: weekly
+      day: sunday
+    labels: [dependencies]
+    commit-message:
+      prefix: '[dependency]'
+    cooldown:
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
+    groups:
+      github-actions:
+        patterns:
+          - '*'
