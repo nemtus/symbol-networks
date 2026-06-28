@@ -1,0 +1,103 @@
+name: mirror-sync (upstream symbol/networks)
+
+# Tracks upstream symbol/networks WITHOUT force-pushing our branches. Two network
+# branches are mirrored with a name remap:
+#   upstream symbol/networks:mainnet -> nemtus/symbol-networks:main      (default)
+#   upstream symbol/networks:sai     -> nemtus/symbol-networks:test-sai
+#
+# Each run, per branch: merges new upstream commits into a fresh sync branch, re-applies
+# the nemtus republish layer (apply-nemtus-networks-patch.sh — repoints shoestring.ini
+# [images] at ghcr.io/nemtus), and opens a PR into the mapped branch. A human (or
+# auto-merge) reviews and merges it.
+#
+# IMPORTANT: merge these sync PRs with a MERGE COMMIT (never "Squash and merge"). The
+# sync branch carries the upstream branch as a parent; squashing would drop that parent
+# and make every run replay the entire upstream history as a giant diff.
+#
+# The decision below is CONTENT-based: it builds the merged + re-rendered tree and only
+# opens a PR when that tree actually differs from the target branch.
+#
+# Requires repo setting: Settings -> Actions -> General ->
+#   "Allow GitHub Actions to create and approve pull requests" = enabled.
+
+on:
+  schedule:
+    - cron: '37 3 * * *'   # daily 03:37 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write        # push the sync branch
+  pull-requests: write   # open the PR
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - upstream: mainnet
+            local: main
+          - upstream: sai
+            local: test-sai
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ matrix.local }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch upstream
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/symbol/networks.git
+          git fetch upstream ${{ matrix.upstream }}
+
+      - name: Build sync branch and decide (content-based)
+        id: check
+        run: |
+          # Fast path: if our branch already contains every upstream commit, stop early.
+          if git merge-base --is-ancestor upstream/${{ matrix.upstream }} HEAD; then
+            echo "${{ matrix.local }} already contains upstream/${{ matrix.upstream }}; nothing to sync."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          upstream_sha="$(git rev-parse --short upstream/${{ matrix.upstream }})"
+          branch="sync/${{ matrix.local }}-${upstream_sha}"
+          git checkout -B "${branch}"
+          # Prefer upstream on any conflict; the nemtus layer is restored next.
+          git merge -X theirs --no-edit --no-commit upstream/${{ matrix.upstream }} || true
+          bash .github/scripts/apply-nemtus-networks-patch.sh
+          git add -A
+
+          # Content guard: if the merged + re-rendered tree is identical to the target
+          # branch, there is nothing to sync even though ancestry differs.
+          if git diff --cached --quiet; then
+            echo "merged tree == ${{ matrix.local }}; nothing to sync."
+            git merge --abort 2>/dev/null || git reset --hard HEAD
+            git checkout ${{ matrix.local }}
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git commit --no-edit -m "chore: sync upstream ${{ matrix.upstream }}@${upstream_sha} + nemtus republish layer"
+          echo "SYNC_BRANCH=${branch}" >> "$GITHUB_ENV"
+          echo "upstream_sha=${upstream_sha}" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push sync branch and open PR
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git push -u origin "${SYNC_BRANCH}" --force-with-lease
+          open_count="$(gh pr list --repo "${GITHUB_REPOSITORY}" --head "${SYNC_BRANCH}" --state open --json number --jq 'length')"
+          if [ "${open_count}" != "0" ]; then
+            echo "PR already open for ${SYNC_BRANCH}."
+          else
+            gh pr create --repo "${GITHUB_REPOSITORY}" --base ${{ matrix.local }} --head "${SYNC_BRANCH}" \
+              --title "Sync upstream symbol/networks:${{ matrix.upstream }}@${{ steps.check.outputs.upstream_sha }} -> ${{ matrix.local }}" \
+              --body "Automated mirror sync. Merges upstream symbol/networks:${{ matrix.upstream }} into \`${{ matrix.local }}\` and re-applies the nemtus republish layer (shoestring.ini [images] -> ghcr.io/nemtus). Merge with a MERGE COMMIT (not squash)."
+          fi

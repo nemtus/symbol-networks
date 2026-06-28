@@ -1,0 +1,72 @@
+name: mirror-ci (parity + republish layer)
+
+# Mirror-specific CI for the nemtus/symbol-networks republish mirror. Content is identical
+# to upstream symbol/networks except shoestring.ini [images] (repointed to ghcr.io/nemtus).
+# This validates that each sync PR (mirror-sync.yml) and each push to main / test-sai still:
+#   (1) has the nemtus republish layer cleanly + idempotently applied,
+#   (2) carries no merge-conflict markers,
+#   (3) ships a shoestring.ini whose [images] point at the NEMTUS images, and
+#   (4) ships a nemesis seed/ at a layout shoestring's PackageResolver can consume.
+#
+# NOTE: this workflow and mirror-sync.yml are kept by apply-nemtus-networks-patch.sh's
+# nemtus_workflows allow-list, so mirror-sync does not strip them.
+
+on:
+  pull_request: {}
+  push:
+    branches: [main, test-sai]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Re-running the idempotent republish patch must produce NO diff. This proves the
+  # [images] repoint, README notice, socket.yml, dependabot and workflow strip are intact.
+  verify-rename-layer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Re-apply republish layer and assert no drift
+        run: |
+          bash .github/scripts/apply-nemtus-networks-patch.sh
+          if ! git diff --exit-code; then
+            echo "::error::Republish layer drift - apply-nemtus-networks-patch.sh produced changes." >&2
+            exit 1
+          fi
+      - name: Assert no merge conflict markers
+        run: |
+          if git grep -nE '^(<{7}|={7}|>{7})( |$)' -- .; then
+            echo "::error::Merge conflict markers found." >&2
+            exit 1
+          fi
+
+  # Parity gate: shoestring.ini [images] must point at ghcr.io/nemtus at the versions
+  # pinned in versions.env, and the package must carry a consumable nemesis seed.
+  validate-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Assert [images] repointed to ghcr.io/nemtus (per versions.env)
+        run: |
+          # shellcheck disable=SC1091
+          . .github/network-config/versions.env
+          grep -qxF "client = ghcr.io/nemtus/catapult-server:${CATAPULT_IMAGE_VERSION}" shoestring.ini \
+            || { echo "::error::shoestring.ini [images] client not repointed to ghcr.io/nemtus:${CATAPULT_IMAGE_VERSION}"; exit 1; }
+          grep -qxF "rest = ghcr.io/nemtus/symbol-rest:${REST_IMAGE_VERSION}" shoestring.ini \
+            || { echo "::error::shoestring.ini [images] rest not repointed to ghcr.io/nemtus:${REST_IMAGE_VERSION}"; exit 1; }
+          if grep -qE '^(client|rest) = symbolplatform/' shoestring.ini; then
+            echo "::error::shoestring.ini still references upstream symbolplatform images"; exit 1
+          fi
+      - name: Assert nemesis seed present (PackageResolver-consumable layout)
+        run: |
+          test -f seed/index.dat || { echo "::error::missing seed/ — package would not be a valid shoestring config"; exit 1; }
+          test -f shoestring.ini  || { echo "::error::missing shoestring.ini"; exit 1; }
