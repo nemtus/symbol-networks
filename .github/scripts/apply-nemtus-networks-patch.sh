@@ -38,11 +38,22 @@ catapult_image="ghcr.io/nemtus/catapult-server:${CATAPULT_IMAGE_VERSION}"
 rest_image="ghcr.io/nemtus/symbol-rest:${REST_IMAGE_VERSION}"
 
 echo "==> patching ${shoestring_ini} [images]"
-# Anchored replacements that match ONLY the upstream symbolplatform values. After the
-# first run the lines start with `ghcr.io/nemtus`, so a second run is a no-op (idempotent
-# -> mirror-ci no-drift stays green). `client`/`rest` keys appear only under [images].
-sed -i "s|^client = symbolplatform/symbol-server:.*\$|client = ${catapult_image}|" "${shoestring_ini}"
-sed -i "s|^rest = symbolplatform/symbol-rest:.*\$|rest = ${rest_image}|" "${shoestring_ini}"
+# Anchored replacements that match the KNOWN image names only — either the upstream
+# symbolplatform value (fresh mirror of an upstream branch) or our own ghcr.io/nemtus
+# value (already-patched branch, i.e. every committed shoestring.ini here). Both
+# alternatives must be accepted so that bumping a version in versions.env alone is
+# enough to repoint an already-patched branch; anchoring on upstream only would make
+# such a bump a silent no-op and trip the grep verification below.
+#
+# Still anchored (not a blanket `^client = .*`): an unrecognised image name is left
+# untouched and then fails the verification, so upstream format drift cannot ship
+# silently. The tag part is intentionally open (`:.*`) — that is what we converge.
+# Idempotent: a second run rewrites the same line to the same value (no diff ->
+# mirror-ci no-drift stays green). `client`/`rest` keys appear only under [images].
+#
+# `#` is the s/// delimiter here because the alternation needs a literal `|`.
+sed -i -E "s#^client = (symbolplatform/symbol-server|ghcr\.io/nemtus/catapult-server):.*\$#client = ${catapult_image}#" "${shoestring_ini}"
+sed -i -E "s#^rest = (symbolplatform/symbol-rest|ghcr\.io/nemtus/symbol-rest):.*\$#rest = ${rest_image}#" "${shoestring_ini}"
 
 # Fail loudly if the upstream format ever drifts so a silent non-rewrite can't ship.
 if ! grep -qxF "client = ${catapult_image}" "${shoestring_ini}"; then
