@@ -22,8 +22,8 @@
 	},
 
 	"throttling": {
-		"burst": 80,
-		"rate": 60
+		"max": 60,
+		"timeWindow": 1000
 	},
 
 	"logging": {
@@ -49,5 +49,7 @@
 		"deploymentTool": "shoestring",
 		"deploymentToolVersion": "alpha",
 		"lastUpdatedDate": "n/a"
-	}
+	},
+
+	"trustProxy": false
 }

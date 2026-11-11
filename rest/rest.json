@@ -70,8 +70,8 @@
 	},
 
 	"throttling": {
-		"burst": 80,
-		"rate": 60
+		"max": 60,
+		"timeWindow": 1000
 	},
 	"logging": {
 		"console": {
@@ -107,5 +107,7 @@
 	"metal": {
 		"cacheTtl": 300,
 		"sizeLimit": 10000000
-	}
+	},
+
+	"trustProxy": false
 }
