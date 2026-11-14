@@ -6,7 +6,9 @@ name: mirror-ci (parity + republish layer)
 #   (1) has the nemtus republish layer cleanly + idempotently applied,
 #   (2) carries no merge-conflict markers,
 #   (3) ships a shoestring.ini whose [images] point at the NEMTUS images, and
-#   (4) ships a nemesis seed/ at a layout shoestring's PackageResolver can consume.
+#   (4) ships a nemesis seed/ at a layout shoestring's PackageResolver can consume, and
+#   (5) pins NEMTUS images built from the same upstream release the synced config expects
+#       (and that those tags exist on ghcr.io) — see check-image-version-parity.sh.
 #
 # NOTE: this workflow and mirror-sync.yml are kept by apply-nemtus-networks-patch.sh's
 # nemtus_workflows allow-list, so mirror-sync does not strip them.
@@ -70,3 +72,29 @@ jobs:
         run: |
           test -f seed/index.dat || { echo "::error::missing seed/ — package would not be a valid shoestring config"; exit 1; }
           test -f shoestring.ini  || { echo "::error::missing shoestring.ini"; exit 1; }
+
+  # Version gate: the NEMTUS images pinned in versions.env must be built from the SAME
+  # upstream release that the synced upstream config pins in its shoestring.ini [images],
+  # and must exist on ghcr.io. Upstream ships config changes that need new binaries in the
+  # same commit as the image bump (e.g. a fork height in config-network.properties, or a
+  # rest.json schema change); without this gate the republish layer would pair that config
+  # with the old NEMTUS images and the sync PR would still be green.
+  image-version-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assert pinned NEMTUS images match the synced upstream release
+        env:
+          TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
+        run: |
+          case "${TARGET_BRANCH}" in
+            main) upstream_branch=mainnet ;;
+            test-sai) upstream_branch=sai ;;
+            *) echo "Target ${TARGET_BRANCH} is not a mirrored branch; skipping."; exit 0 ;;
+          esac
+          git remote add upstream https://github.com/symbol/networks.git
+          git fetch --no-tags upstream "${upstream_branch}"
+          bash .github/scripts/check-image-version-parity.sh "upstream/${upstream_branch}"
