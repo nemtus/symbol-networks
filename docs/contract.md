@@ -39,12 +39,21 @@ rest   = ghcr.io/nemtus/symbol-rest:v2.5.1-20261101
 mongo  = mongo:7.0.23
 ```
 
+(Example values; the authoritative pins are in `.github/network-config/versions.env`.)
+
 - `mongo` is third-party and left as upstream.
 - These versions are pinned in `.github/network-config/versions.env` and injected by
   `.github/scripts/apply-nemtus-networks-patch.sh` on every sync.
 - The `-<YYYYMMDD>` suffix identifies one **immutable** nemtus build of that upstream
   version. The unsuffixed `v<X>` tags also exist and point at the same digest, but they
   are mutable and must not be pinned here — see below.
+- The pinned versions must be built from the **same upstream release** that the synced
+  upstream `shoestring.ini` pins (`symbolplatform/symbol-server:gcc-<X>` ->
+  `v<X>-<YYYYMMDD>`, `symbolplatform/symbol-rest:<Y>` -> `v<Y>-<YYYYMMDD>`), because
+  upstream ships config that needs the new binaries (fork heights, `rest.json` schema) in
+  the same commit as the image bump. `mirror-ci.yml`'s `image-version-parity` job
+  (`.github/scripts/check-image-version-parity.sh`) fails a sync PR until the matching
+  NEMTUS images are published and `versions.env` is bumped on that sync branch.
 - `[services] nodewatch` is **currently left as upstream** (`nodewatch.symbol.tools`).
   Pointing it at a NEMTUS host is a follow-up for strict full-independence.
 
